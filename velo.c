@@ -2,6 +2,9 @@
 #include <stdlib.h>
 #include <math.h>
 
+#include "interpolate.h"
+
+// based on Chinese paper ~ "Optimized velocity profiles for CNC"
 
 // [1,vs1,x1y1,l12        ], [2,vs2,x2y2,l23         ], [3,vs3,x3y3      ] 
 // v<n> refers to the speed at start of interval
@@ -15,12 +18,13 @@ typedef struct node {
     int eof;			// marker for missing data
 } NODE;
 
-#define MAXLOOK 64
-#define MAXBUF 128
-#define NLOOK 7
-#define AMAX 0.038
-#define VMAX 0.5
-#define RES  1.0
+#define MAXLOOK 64		// maximum lookahead
+#define MAXBUF 128		// maximum input x,y,z linesize
+
+#define NLOOK 7			// default lookahead
+#define AMAX 0.038		// default acceleration
+#define VMAX 0.5		// default maximum velocity
+#define RES  1.0		// default stepper resolution
 
 int nlook = NLOOK;
 double amax = AMAX;
@@ -37,12 +41,12 @@ int n = 0;
 
 void interpolate();
 
-NODE *d(int k)
+NODE *d(int k)		// modulo access point data ring buffer 
 {
     return (&nodebuf[(n + k + nlook) % nlook]);
 }
 
-int getval()
+int getval()	// read either "x y" or "x y z" from stdin
 {
     int c;
     double x, y, z;
@@ -115,7 +119,7 @@ main(int argc, char **argv)
 	case 'n':			// set lookahead
 	    nlook = atoi(optarg);
 	    if (nlook < 3) nlook=3;
-	    if (nlook > 20) nlook=20;
+	    if (nlook > MAXLOOK-1) nlook=MAXLOOK-1;
 	    break;
 	case 'r':			// set resolution
 	    res = atof(optarg);
@@ -216,6 +220,7 @@ main(int argc, char **argv)
 //	     d(i)->x, d(i)->y, d(i)->z, d(i + 1)->x, d(i + 1)->y,
 //	     d(i + 1)->z, ltotal += d(i)->l, d(i)->l, d(i)->vs, d(i + 1)->vs);
 
+
 	interpolate(d(i)->x, d(i)->y, d(i)->z, d(i + 1)->x, d(i + 1)->y, d(i+1)->z, d(i)->vs, d(i+1)->vs, ltotal);
 	ltotal+=d(i)->l;
 
@@ -224,6 +229,14 @@ main(int argc, char **argv)
     }
     printf("%g %g (%g, %g, %g)\n", ltotal, 0.0, d(i+1)->x, d(i+1)->y, d(i+1)->z);
 }
+
+
+// extern void setseg(
+//     double x1, double y1, double z1, 
+//     double x2, double y2, double z2, 
+//     double vvs, double vve, double vvmax, double aamax, double rres); 
+
+// extern double timeatl(double l);
 
 void interpolate(double x1, double y1, double z1, 
     double x2, double y2, double z2, 
