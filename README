@@ -1,0 +1,9 @@
+doodling towards making a servomotor CNC drive with optimized velocity profiling.
+
+velo.c	reads x,y,z stream and optimizes start/end velocities to obey vmax/amax
+interp  progress xres, yres step by step for a given segment
+ramp	awk script for computing time within a segment
+
+Work is to combine interp and ramp into a helper routine and then merge with velo
+to do complete stepper timing for 3 axes.
+

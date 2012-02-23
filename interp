@@ -1,0 +1,37 @@
+awk '
+    BEGIN {
+    }
+
+    // {
+       x1=$1; y1=$2; x2=$3; y2=$4;
+       # print x1, y1, x2, y2;
+       print x1, y1
+       print x2, y2
+       print "jump"
+       print "symbol+line"
+
+       XX=x1
+       YY=y1
+
+       alpha=0
+       print XX, YY, 0,0
+       while((XX < x2) || (YY < y2)) {
+           # find alpha for intersection    
+	   # of line with XX+1 and YY+1
+	   # then increment dir with smallest alpha
+
+	   # XX = alphax*(x2-x1) + x1
+
+	   alphax = (XX+1 - x1)/(x2-x1);
+	   alphay = (YY+1 - y1)/(y2-y1);
+
+	   if (alphax < alphay) {
+	      XX++;
+	      print XX, YY, alphax
+	   } else {
+	      YY++;
+	      print XX, YY, alphay
+	   }
+       }
+    }
+'
