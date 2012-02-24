@@ -134,9 +134,12 @@ main(int argc, char **argv)
     }
 
     if (errflg) {
-	fprintf(stderr, "usage: %s [-n<nlook>][-d (debug)]\n", argv[0]);
-	fprintf(stderr, "     [-n <nlook>] ; set lookahead length \n");
-	fprintf(stderr, "     [-d] ; verbose debugging info\n");
+	fprintf(stderr, "usage: %s [options] < xyzfile\n", argv[0]);
+	fprintf(stderr, "     -a <amax>  ; set acceleration limit\n");
+	fprintf(stderr, "     -d         ; verbose debugging info\n");
+	fprintf(stderr, "     -n <nlook> ; set lookahead length \n");
+	fprintf(stderr, "     -r <res>   ; set stepper resolution\n");
+	fprintf(stderr, "     -v <vmax>  ; set velocity limit\n");
 	exit(1);
     }
 
