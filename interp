@@ -4,34 +4,54 @@ awk '
 
     // {
        x1=$1; y1=$2; x2=$3; y2=$4;
-       # print x1, y1, x2, y2;
-       print x1, y1
-       print x2, y2
-       print "jump"
-       print "symbol+line"
+       #print "#xyxy", x1, y1, x2, y2;
+       #print x1, y1
+       #print x2, y2
+       #print "jump"
+       #print "symbol+line"
+       #print "back"
 
        XX=x1
        YY=y1
+       
+       xdir=(x2>x1)?1:-1
+       ydir=(y2>y1)?1:-1
+       print "#xdir: ", xdir, ydir
 
        alpha=0
-       print XX, YY, 0,0
-       while((XX < x2) || (YY < y2)) {
+       #print XX, YY, 0,0
+
+       while((abs(XX-x2)>.5) || (abs(YY-y2)>.5)) {
+	   # print XX, YY
            # find alpha for intersection    
 	   # of line with XX+1 and YY+1
 	   # then increment dir with smallest alpha
 
 	   # XX = alphax*(x2-x1) + x1
 
-	   alphax = (XX+1 - x1)/(x2-x1);
-	   alphay = (YY+1 - y1)/(y2-y1);
+	   if ((x2-x1) != 0.0) {
+	       alphax = (XX+xdir - x1)/(x2-x1);
+	   } else {
+	       alphax = 1
+	   }
+
+	   if ((y2-y1) != 0.0) {
+	       alphay = (YY+ydir - y1)/(y2-y1);
+	   } else {
+	       alphay = 1
+	   }
 
 	   if (alphax < alphay) {
-	      XX++;
+	      XX+=xdir;
 	      print XX, YY, alphax
 	   } else {
-	      YY++;
+	      YY+=ydir;
 	      print XX, YY, alphay
 	   }
        }
+    }
+
+    function abs(h) {
+       return sqrt(h*h)
     }
 '

@@ -4,9 +4,14 @@
 
 #include "interpolate.h"
 
-// based on Chinese paper ~ "Optimized velocity profiles for CNC"
+//
+// based on "An optimal feedrate model and solution algorithm for
+// high-speed machine of small line blocks with look-ahead", Lingjian
+// Xiao, Jun Hu, Yuhan Wang, Zuyu Wu, Int J Adv Manuf Technol (2004)
+// 00:1-6. (web preprint of submitted paper). 
+//
 
-// [1,vs1,x1y1,l12        ], [2,vs2,x2y2,l23         ], [3,vs3,x3y3      ] 
+// [1,vs1,x1y1,l12 ], [2,vs2,x2y2,l23 ], [3,vs3,x3y3  ] 
 // v<n> refers to the speed at start of interval
 
 typedef struct node {
@@ -22,14 +27,17 @@ typedef struct node {
 #define MAXBUF 128		// maximum input x,y,z linesize
 
 #define NLOOK 7			// default lookahead
-#define AMAX 0.038		// default acceleration
-#define VMAX 0.5		// default maximum velocity
-#define RES  1.0		// default stepper resolution
+#define AMAX 1.0		// default acceleration
+#define VMAX 2.0		// default maximum velocity
+#define RES  0.001		// default stepper resolution
+#define FSTEP 19500.0		// servo interrupt rate
+#define MINSTEP 4.0		// limit on stepper update rate
 
 int nlook = NLOOK;
 double amax = AMAX;
 double vmax = VMAX;
 double res = RES;
+double fstep = FSTEP;
 int debug = 0;
 
 NODE nodebuf[MAXLOOK];
@@ -38,8 +46,6 @@ char buf[MAXBUF];
 int readerrors = 0;
 int nread = 0;
 int n = 0;
-
-void interpolate();
 
 NODE *d(int k)		// modulo access point data ring buffer 
 {
@@ -80,15 +86,9 @@ int getval()	// read either "x y" or "x y z" from stdin
     if (nread > 1) {
 	d(-1)->l = sqrt(pow((d(0)->x - d(-1)->x), 2.0) +
 			pow((d(0)->y - d(-1)->y), 2.0) +
-			pow((d(0)->z - d(-1)->z), 2.0)
-	    );
+			pow((d(0)->z - d(-1)->z), 2.0) );
     }
     return (readerrors);
-}
-
-double min(double x, double y)
-{
-    return ((x < y) ? x : y);
 }
 
 
@@ -102,6 +102,7 @@ main(int argc, char **argv)
     double cosine;
     double vv;
     double ltotal = 0.0;
+    double ttotal = 0.0;
 
     extern int optind;
     extern char *optarg;
@@ -115,6 +116,9 @@ main(int argc, char **argv)
 	    break;
 	case 'd':
 	    debug++;
+	    break;
+	case 'f':			// set stepper update freq
+	    fstep = atof(optarg);
 	    break;
 	case 'n':			// set lookahead
 	    nlook = atoi(optarg);
@@ -137,15 +141,36 @@ main(int argc, char **argv)
 	fprintf(stderr, "usage: %s [options] < xyzfile\n", argv[0]);
 	fprintf(stderr, "     -a <amax>  ; set acceleration limit\n");
 	fprintf(stderr, "     -d         ; verbose debugging info\n");
+	fprintf(stderr, "     -f <fstep> ; stepper update frequency\n");
 	fprintf(stderr, "     -n <nlook> ; set lookahead length \n");
 	fprintf(stderr, "     -r <res>   ; set stepper resolution\n");
 	fprintf(stderr, "     -v <vmax>  ; set velocity limit\n");
 	exit(1);
     }
 
+    if (debug) {
+    fprintf(stderr, "-a (%8.3g) ;accelleration limit (inches/second^2)\n", amax);
+    fprintf(stderr, "-f (%8.3g) ;stepper update frequency\n", fstep);
+    fprintf(stderr, "-n (%8d) ;number of segments lookahead\n", nlook);
+    fprintf(stderr, "-r (%8.3g) ;stepper step size (inches)\n", res);
+    fprintf(stderr, "-v (%8.3g) ;velocity limit (inches/second)\n", vmax);
+    fprintf(stderr, "\n");
+    fprintf(stderr, "%8.3g min step spacing (updates)\n", fstep/(vmax/res)); 
+    }
+
+    if ((fstep/(vmax/res)) < MINSTEP) {
+        fprintf(stderr, "%s error: exceeded maximum allowable velocity\n",
+	argv[0]);
+        fprintf(stderr, 
+	    "min steps/update = (fstep*res)/(vmax) = %g (must be >= %g)\n",
+	    fstep/(vmax/res), MINSTEP);
+        exit(2); 
+    }
+
     for (i = 0; i < nlook - 1; i++) {	// fill buffer
 	getval();
     }
+
     while (!done) {
 	getval();
 
@@ -176,14 +201,14 @@ main(int argc, char **argv)
 		cosine /= sqrt(pow((x2 - x1), 2.0) + pow((y2 - y1), 2.0) +
 		       pow((z2 - z1), 2.0));
 
-		if (sqrt(2.0 - 2.0 * cosine) < amax * res / vmax) {
+		if (sqrt(2.0 - 2.0 * cosine) < (amax * res / vmax)) {
 		    d(i)->vs = vmax;
-		    if (debug)
+		    if (debug>1)
 			printf("1 vs = %g %g: %g %g %g, %g %g %g, %g %g %g\n",
 			     d(i)->vs, cosine, x0, y0, z0, x1, y1, z1, x2, y2, z2);
 		} else {
 		    d(i)->vs = amax * res / sqrt(2.0 - 2.0 * cosine);
-		    if (debug)
+		    if (debug>1)
 			printf("2 vs = %g %g: %g %g %g, %g %g %g, %g %g %g\n",
 			     d(i)->vs, cosine, x0, y0, z0, x1, y1, z1, x2, y2, z2);
 		}
@@ -199,7 +224,7 @@ main(int argc, char **argv)
 
 	for (i = nlook - 1; i > 1; i--) {	// backwards chaining
 	    vv = sqrt(pow(d(i + 1)->vs, 2.0) + 2.0 * amax * d(i)->l);
-	    if (debug)
+	    if (debug>1)
 		printf("di+1vs=%g divs=%g vv==%g\n", d(i + 1)->vs,
 		       d(i)->vs, vv);
 	    d(i)->vs = min(d(i)->vs, vv);
@@ -210,7 +235,7 @@ main(int argc, char **argv)
 	vv = sqrt(pow(d(1)->vs, 2.0) + 2.0 * amax * d(1)->l);
 	d(2)->vs = min(d(2)->vs, vv);
 
-	if (debug) {
+	if (debug>1) {
 	    printf("------------------\n");
 	    for (i = 1; i <= nlook; i++) {
 		printf("n:%d i:%d x:%g y:%g z:%g eof:%d vs:%g l:%g\n",
@@ -219,64 +244,17 @@ main(int argc, char **argv)
 	    }
 	}
 
-//	printf("(%g, %g, %g) => (%g, %g, %g)\tltotal:%7.3g\tdl:%7.3g\tvstart: %7.3g\tvend: %7.3g\n",
-//	     d(i)->x, d(i)->y, d(i)->z, d(i + 1)->x, d(i + 1)->y,
-//	     d(i + 1)->z, ltotal += d(i)->l, d(i)->l, d(i)->vs, d(i + 1)->vs);
 
+	// initialize velocity calculation code
+	setseg(d(i)->l,d(i)->vs,d(i+1)->vs,vmax,amax,res, fstep);
 
-	interpolate(d(i)->x, d(i)->y, d(i)->z, d(i + 1)->x, d(i + 1)->y, d(i+1)->z, d(i)->vs, d(i+1)->vs, ltotal);
+	ttotal+=interpolate(d(i)->x, d(i)->y, d(i)->z, d(i+1)->x, d(i+1)->y,
+	d(i+1)->z, ttotal, ltotal);
+
 	ltotal+=d(i)->l;
 
 	if (d(3)->eof == 1)
 	    done++;
     }
-    printf("%g %g (%g, %g, %g)\n", ltotal, 0.0, d(i+1)->x, d(i+1)->y, d(i+1)->z);
 }
 
-
-// extern void setseg(
-//     double x1, double y1, double z1, 
-//     double x2, double y2, double z2, 
-//     double vvs, double vve, double vvmax, double aamax, double rres); 
-
-// extern double timeatl(double l);
-
-void interpolate(double x1, double y1, double z1, 
-    double x2, double y2, double z2, 
-    double vstart, double vend, double dist) {
-
-    double vm;		// peak value for segment
-    double lseg;	// length of this segment
-    double s1,s2,s3;	// distances of rampup,constant,rampdown
-    double ts1, ts2;	// time to reach s1,s2
-
-    lseg = sqrt(pow((x2-x1),2.0) + pow((y2-y1),2.0) + pow((z2-z1),2.0));
-
-    vm = min(vmax, sqrt((pow(vstart,2.0) + pow(vend,2.0) + 2.0*amax*lseg)/2.0));
-
-    s1 = (vm*vm-vstart*vstart)/(2.0*amax);
-    if (fabs(s1) < res/100.0) s1 = 0.0;
-
-    s3 = (vm*vm-vend*vend)/(2.0*amax);
-    if (fabs(s3) < res/100.0) s3 = 0.0;
-
-    s2 = lseg-s1-s3;
-    if (fabs(s2) < res/100.0) s2 = 0.0;
-
-    ts1 = (sqrt(vstart*vstart+2.0*amax*s1)-vstart)/amax;
-    ts2 = ts1 + s2*vm;
-
-    printf("# %8.4g %8.4g %8.4g vs:%g ve:%g \n", s1/lseg, s2/lseg, s3/lseg,vstart,vend);
-    // printf("#lseg: %g s1: %g s2: %g s3: %g vs:%g ve:%g \n", lseg, s1, s2, s3,vstart,vend);
-
-    printf("%g %g (%g, %g, %g)\n",  
-    	dist, vstart, x1, y1, z1);
-    if (s1 < (lseg - res)) {
-	printf("%g %g (%g, %g, %g)\n",  
-	    dist+s1, vm, x1+(x2-x1)*s1/lseg, y1+(y2-y1)*s1/lseg, z1+(z2-z1)*s1/lseg);
-    }
-    if (s2 > res) {
-	printf("%g %g (%g, %g, %g)\n",  
-		dist+s1+s2, vm, x1+(x2-x1)*(s1+s2)/lseg, y1+(y2-y1)*(s1+s2)/lseg, z1+(z2-z1)*(s1+s2)/lseg);
-    }
-}

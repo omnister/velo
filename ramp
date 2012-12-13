@@ -3,7 +3,7 @@ awk '
     BEGIN {
        amax=.1
        vmax=1
-       res=.01
+       res=.1
        gpen=1;
        print "L, vs, ve"
        print "back"
@@ -12,33 +12,44 @@ awk '
     }
 
     // {
-       L=$1; vs=$2; ve=$3;
+       L=$1; vs=$2; ve=$3; 
+       if (NF > 3) {
+          amax = $4
+       }
+       if (NF > 4) {
+          vmax = $5
+       }
+       if (NF > 5) {
+          res = $6
+       }
 
-       // fixed calculations based on 
-       // L, vs, ve, vmax, amax, res
+       #// fixed calculations based on 
+       #// L, vs, ve, vmax, amax, res
 
        vm = min(sqrt((vs^2+ve^2+2*amax*L)/2),vmax);
        s1=(vm^2-vs^2)/(2*amax); if (abs(s1)<res) s1 = 0;
        s3=(vm^2-ve^2)/(2*amax); if (abs(s3)<res) s3 = 0;
        s2=(L-s1-s3); if (abs(s2)<res) s2 = 0;
        ts1 = (sqrt(vs^2+2*amax*s1)-vs)/amax;  // time to reach s1
-       ts2 = ts1 + (s2)*vm; 		      // time to reach s2
+       ts2 = ts1 + (s2)/vm; 		      // time to reach s2
 
-       print "#", s1,s2,s3,ta,tl,td, vm
+       print "#s1:" s1, "s2:" s2, "s3:" s3, "ta:" ta, "tl:", tl, "td:" td, "vm:" vm
 
        for (ll=0; ll<=L; ll+=res) {
 	  print timeatl(ll), ll
        }
+       print "jump"
     }
 
-    // compute time at given distance for this segment
-    // uses globals: vs, ve, vm, s1, amax, s1, s2, ts1, ts2
+    #// compute time at given distance for this segment
+    #// uses globals: vs, ve, vm, s1, amax, s1, s2, ts1, ts2
 
     function timeatl(l) {
       if (l < s1) { 		// accellerating
-	 tt = (sqrt(vs^2+2*amax*l)-vs)/amax
+	 tt = (sqrt(vs^2+2.0*amax*l)-vs)/amax
+	 setpen(2);
       } else if (l < s1+s2) {	// cruising
-	 tt = ts1 + (l-s1)*vm
+	 tt = ts1 + (l-s1)/vm
 	 setpen(3);
       } else {			// decellerating
 	 tt = ts2 + (vm - sqrt(abs(vm^2 - 2*amax*(l-(s2+s1)))))/amax
@@ -62,6 +73,5 @@ awk '
     function abs(a) { 
        return(sqrt(a^2));
     }
-'
-
+' 
 
