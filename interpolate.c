@@ -18,16 +18,23 @@ static double res;
 static int pen;
 static double fupdate;		// pic (servo) interrupt frequency
 
-double max(double x, double y)
+extern int debug;
+
+int xloc=0;			// actual step counts
+int yloc=0;
+int zloc=0;
+int wloc=0;
+
+double max(double a, double b)
 {
-    if (x > y) return x;
-    return y;
+    if (a > b) return a;
+    return b;
 }
 
-double min(double x, double y)
+double min(double a, double b)
 {
-    if (x < y) return x;
-    return y;
+    if (a < b) return a;
+    return b;
 }
 
 // set globals for further computation on this segment
@@ -56,9 +63,11 @@ void setseg(double llseg,
     ts1 = (sqrt(vs*vs+2.0*amax*s1)-vs)/amax;
     ts2 = ts1 + s2/vm;
 
-    // printf("#setseg: lseg:%g vmax:%g amax:%g vs:%g \
-    // ve:%g vm:%g s1:%g s2:%g s3:%g ts1:%g ts2:%g\n", 
-    // lseg, vmax, amax, vs, ve, vm, s1, s2, s3, ts1, ts2);
+    if (debug > 1) {
+     printf("#setseg: lseg:%g vmax:%g amax:%g vs:%g \
+     ve:%g vm:%g s1:%g s2:%g s3:%g ts1:%g ts2:%g\n", 
+     lseg, vmax, amax, vs, ve, vm, s1, s2, s3, ts1, ts2);
+    }
 }
 
 // return the time it takes to get to fraction alpha of this segment
@@ -66,9 +75,13 @@ double time2alpha(double alpha) {
 
       double l = alpha*lseg;
       double tt;
+      int clipped = 0;
 
-      // printf("atl: l:%g s1:%g s2:%g ts1:%g ts2:%g vm:%g amax:%g\n", 
-      // l, s1, s2, ts1, ts2, vm, amax);
+      if (alpha > 1.0) {	// clip the input
+          alpha = 1.0;
+	  clipped++;
+      }
+
       if (l < s1) {             // accellerating
          tt = (sqrt(vs*vs+2.0*amax*l)-vs)/amax;
 	 pen = 2;
@@ -79,73 +92,130 @@ double time2alpha(double alpha) {
          tt = ts2 + (vm - sqrt(fabs(vm*vm - 2.0*amax*(l-(s2+s1)))))/amax;
 	 pen = 4;
       }
+      if (debug > 1) {
+        printf("atl: alpha:%g l:%g s1:%g s2:%g ts1:%g ts2:%g vm:%g amax:%g tt:%g\n", 
+        alpha, l, s1, s2, ts1, ts2, vm, amax, tt);
+      }
+
       return(tt);
+
 }
 
-double interpolate(double x1, double y1, double z1, 
-                    double x2, double y2, double z2, 
-		    double ttotal, double ltotal) {
-    double xx, yy, zz;
+double interpolate(double x1, double y1, double z1, double w1,
+                   double x2, double y2, double z2, double w2, 
+		   double ttotal, double ltotal) {
+    double xx, yy, zz, ww;
     double alpha;
     double alphax=0.0;
     double alphay=0.0;
     double alphaz=0.0;
-    double xdir, ydir, zdir;
-    int xs, ys, zs;		// was there a step?
-    int x0, y0, z0;
+    double alphaw=0.0;
+    double xdir, ydir, zdir, wdir;
+    int xs, ys, zs, ws;			// was there a step?
+    int x0, y0, z0, w0;
     int minval;
-    int xstep, ystep, zstep;	// next step counts
+    int xstep, ystep, zstep, wstep;	// next step counts
     int minval2 = 0;
+    int delay;
+    int done;
 
-    unsigned char mask;		// bit mask for advancing wxyz
+    unsigned char mask;		// bit mask for advancing xyzw
     unsigned char stepmask;	// mask for non-zero dims
     unsigned char dirmask;	// mask for direction 1=increasing
+    double eax, eay, eaz, eaw;	// end points for alpha calc
     
-    xx=x1; yy=y1; zz=z1;
+    xx=x1; yy=y1; zz=z1, ww=w1;
 
     xdir=(x2 > x1)?1.0:-1.0;
     ydir=(y2 > y1)?1.0:-1.0;
     zdir=(z2 > z1)?1.0:-1.0;
+    wdir=(w2 > w1)?1.0:-1.0;
 
     dirmask = 0;
     if (x2 > x1) dirmask |= XMASK;
     if (y2 > y1) dirmask |= YMASK;
     if (z2 > z1) dirmask |= ZMASK;
+    if (w2 > w1) dirmask |= WMASK;
 
-    printf("DIR 0x%0.2x\n", dirmask);
+    if (debug>2) {
+	printf("DIR 0x%0.2x\n", dirmask);
+    } else {
+        putchar(0x80 | dirmask);
+    }
+
+// DELY    (7:0) '0'nnn nnnn  ; delay n+1 counts
+// DIR     (7:0) '1000' xyzw  ; direction (0=ccw, 1=cw)
+// STEP    (7:0) '1001' xyzw  ; step (1=step, 0=idle)
+// MODE    (7:0) '1010' 0mmm  ; set ustep mode
+// STAT    (7:0) '1010' 1res  ; set reset, enable, sleep
+
 
     x0 = x1;
     y0 = y1;
     z0 = z1;
+    w0 = w1;
 
     stepmask = 0;
     if (x2 != x1) stepmask |= XMASK;
     if (y2 != y1) stepmask |= YMASK;
     if (z2 != z1) stepmask |= ZMASK;
+    if (w2 != w1) stepmask |= WMASK;
 
-    alphax = alphay = alphaz = 0.0;
+    alphax = alphay = alphaz = alphaw = 0.0;
+    eax = 1.0 - fabs(0.5*res/(x2-x1));
+    eay = 1.0 - fabs(0.5*res/(y2-y1));
+    eaz = 1.0 - fabs(0.5*res/(z2-z1));
+    eaw = 1.0 - fabs(0.5*res/(w2-w1));
 
-    mask = WMASK | XMASK | YMASK | ZMASK;	// initial step in all dims
-    xstep = ystep = zstep = 0;
+    mask = XMASK | YMASK | ZMASK | WMASK;	// initial step in all dims
+    xstep = ystep = zstep = wstep = 0;
 
-    while((fabs(xx-x2)>res) || (fabs(yy-y2)>res) || (fabs(zz-z2)>res)) {
+    // these won't work due to possible of overshooting and 0 dimensions:
+    // while((fabs(xx-x2)>res) || (fabs(yy-y2)>res) || (fabs(zz-z2)>res)) {
+    // while(alphax < eax || alphay < eay || alphaz < eaz || alphaw < eaw) {
 
-       if (stepmask & XMASK && mask & XMASK) { 
+    done = 0;
+    while(!done) {
+
+       if (debug > 2) {
+	   printf("%x:g %g y:%g %g z:%g %g w:%g %g\n",
+	   	xx, x2, yy, y2, zz, z2, ww, w2);
+	   printf("ax:%g %g ay:%g %g az:%g %g aw: %g %g\n", 
+	        alphax, eax, alphay, eay, alphaz, eaz, alphaw, eaw);
+       }
+
+       done=1;	// set it and then conditionally clear it
+
+       if ((stepmask & XMASK) && (mask & XMASK)) { 
 	   xx+=res*xdir;
+	   xloc += (int) xdir;
            alphax = (xx-x1)/(x2-x1);
+	   if (alphax < eax) done=0;
 	   xstep = (int)(time2alpha(alphax)*fupdate);	
        }
 
        if (stepmask & YMASK && mask & YMASK) {
 	   yy+=res*ydir;
+	   yloc += (int) ydir;
            alphay = (yy-y1)/(y2-y1);
+	   if (alphay < eay) done=0;
 	   ystep = (int)(time2alpha(alphay)*fupdate);	
        }
 
        if (stepmask & ZMASK && mask & ZMASK) {
 	   zz+=res*zdir;
+	   zloc += (int) zdir;
            alphaz = (zz-z1)/(z2-z1);
+	   if (alphaz < eaz) done=0;
 	   zstep = (int)(time2alpha(alphaz)*fupdate);	
+       }
+
+       if (stepmask & WMASK && mask & WMASK) {
+	   ww+=res*wdir;
+	   wloc += (int) wdir;
+           alphaw = (ww-w1)/(w2-w1);
+	   if (alphaw < eaw) done=0;
+	   wstep = (int)(time2alpha(alphaw)*fupdate);	
        }
 
        if (stepmask & XMASK) {
@@ -157,6 +227,9 @@ double interpolate(double x1, double y1, double z1,
        } else if (stepmask & ZMASK) {
 	   minval = zstep;
 	   mask = ZMASK;
+       } else if (stepmask & WMASK) {
+	   minval = wstep;
+	   mask = WMASK;
        }
 
        if (stepmask & YMASK) {
@@ -177,11 +250,33 @@ double interpolate(double x1, double y1, double z1,
 	   }
        }
 
-       // printf("%d %d, %.2x ", minval-minval2, minval, mask);
-       // printf("%d %d %d %g %g %g\n", xstep, ystep, zstep, xx, yy, zz);
+       if (stepmask & WMASK) {
+	   if (wstep < minval) {
+	       minval = wstep;
+	       mask = WMASK;
+	   } else if (wstep == minval) {
+	       mask |= WMASK;
+	   }
+       }
 
-       printf("DEL %d\n", minval-minval2-1);
-       printf("STP 0x%0.2x\n", mask);
+       // printf("%d %d, %.2x ", minval-minval2, minval, mask);
+       // printf("%d %d %d %d %g %g %g %g\n", 
+       //	xstep, ystep, zstep, wstep, xx, yy, zz, ww);
+
+       if (debug>2) {
+	   printf("DEL %d\n", minval-minval2);
+	   printf("STP 0x%0.2x\n", mask);
+       } else {
+	   delay=(minval-minval2);
+	   while(delay>=128) {
+	      putchar(0x7f);
+	      delay-=128;
+	   }
+	   if (delay > 0) {
+	       putchar(delay&0x7f);
+	   }
+	   putchar(0x90 | mask);
+       }
 
        minval2 = minval;
     }

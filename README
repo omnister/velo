@@ -5,7 +5,7 @@ profiling.
 velo.c: reads x,y,z stream and optimizes start/end velocities to obey
 vmax/amax 
 
-interp: awk script progress xres, yres step by step for a given segment 
+interp: awk script progresses xres, yres step by step for a given segment 
 
 ramp: awk script for computing time within a segment
 
@@ -17,3 +17,4 @@ with velo to do complete stepper timing for N axes.
 3dstep: takes output of velo and processes it into a stream of step
 commands for feeding as a bytestream to an FTDI USB fifo chip.
 
+most recent code in new2/

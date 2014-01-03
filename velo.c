@@ -18,18 +18,20 @@ typedef struct node {
     double x;			// x value for start of this segment
     double y;			// y value for start of this segment
     double z;			// z value for start of this segment
+    double w;			// w value for start of this segment
     double vs;			// velocity at start of this segment
     double l;			// distance to the next segment
     int eof;			// marker for missing data
 } NODE;
 
 #define MAXLOOK 64		// maximum lookahead
-#define MAXBUF 128		// maximum input x,y,z linesize
+#define MAXBUF 128		// maximum input x,y,z,w linesize
 
 #define NLOOK 7			// default lookahead
 #define AMAX 1.0		// default acceleration
 #define VMAX 2.0		// default maximum velocity
-#define RES  0.001		// default stepper resolution
+//#define RES  0.0001		// default stepper resolution
+#define RES  0.000098425	// 400 steps/mm = 10160 steps/inc
 #define FSTEP 19500.0		// servo interrupt rate
 #define MINSTEP 4.0		// limit on stepper update rate
 
@@ -39,6 +41,7 @@ double vmax = VMAX;
 double res = RES;
 double fstep = FSTEP;
 int debug = 0;
+
 
 NODE nodebuf[MAXLOOK];
 NODE *pnodebuf = nodebuf;
@@ -55,20 +58,30 @@ NODE *d(int k)		// modulo access point data ring buffer
 int getval()	// read either "x y" or "x y z" from stdin
 {
     int c;
-    double x, y, z;
+    double x, y, z, w;
     n = (n + 1) % nlook;
     nodebuf[n].eof = 0;
     if (fgets(buf, MAXBUF, stdin) == NULL) {
 	nodebuf[n].x = 0.0;
 	nodebuf[n].y = 0.0;
 	nodebuf[n].z = 0.0;
+	nodebuf[n].w = 0.0;
 	nodebuf[n].vs = 0.0;
 	nodebuf[n].l = 0.0;
 	nodebuf[n].eof = 1;
+    } else if (sscanf(buf, "%lf %lf %lf %lf", &x, &y, &z, &w) == 4) {
+	nodebuf[n].x = x;
+	nodebuf[n].y = y;
+	nodebuf[n].z = z;
+	nodebuf[n].w = w;
+	nodebuf[n].vs = 0.0;
+	nodebuf[n].l = 0.0;
+	nread++;
     } else if (sscanf(buf, "%lf %lf %lf", &x, &y, &z) == 3) {
 	nodebuf[n].x = x;
 	nodebuf[n].y = y;
 	nodebuf[n].z = z;
+	nodebuf[n].w = 0.0;
 	nodebuf[n].vs = 0.0;
 	nodebuf[n].l = 0.0;
 	nread++;
@@ -76,6 +89,7 @@ int getval()	// read either "x y" or "x y z" from stdin
 	nodebuf[n].x = x;
 	nodebuf[n].y = y;
 	nodebuf[n].z = 0.0;
+	nodebuf[n].w = 0.0;
 	nodebuf[n].vs = 0.0;
 	nodebuf[n].l = 0.0;
 	nread++;
@@ -86,7 +100,8 @@ int getval()	// read either "x y" or "x y z" from stdin
     if (nread > 1) {
 	d(-1)->l = sqrt(pow((d(0)->x - d(-1)->x), 2.0) +
 			pow((d(0)->y - d(-1)->y), 2.0) +
-			pow((d(0)->z - d(-1)->z), 2.0) );
+			pow((d(0)->z - d(-1)->z), 2.0) +
+			pow((d(0)->w - d(-1)->w), 2.0) );
     }
     return (readerrors);
 }
@@ -96,9 +111,9 @@ main(int argc, char **argv)
 {
     int done = 0;
     int i;
-    double x0, y0, z0;
-    double x1, y1, z1;
-    double x2, y2, z2;
+    double x0, y0, z0, w0;
+    double x1, y1, z1, w1;
+    double x2, y2, z2, w2;
     double cosine;
     double vv;
     double ltotal = 0.0;
@@ -185,32 +200,47 @@ main(int argc, char **argv)
 		x0 = d(i - 1)->x;
 		y0 = d(i - 1)->y;
 		z0 = d(i - 1)->z;
+		w0 = d(i - 1)->w;
 		x1 = d(i)->x;
 		y1 = d(i)->y;
 		z1 = d(i)->z;
+		w1 = d(i)->w;
 		x2 = d(i + 1)->x;
 		y2 = d(i + 1)->y;
 		z2 = d(i + 1)->z;
+		w2 = d(i + 1)->w;
 
 		// efficient calculation of cosine of the bend angle in 3d
 
 		cosine = (x2 - x1) * (x1 - x0) +
-		       (y2 - y1) * (y1 - y0) + (z2 - z1) * (z1 - z0);
-		cosine /= sqrt(pow((x1 - x0), 2.0) + pow((y1 - y0), 2.0) +
-		       pow((z1 - z0), 2.0));
-		cosine /= sqrt(pow((x2 - x1), 2.0) + pow((y2 - y1), 2.0) +
-		       pow((z2 - z1), 2.0));
+		         (y2 - y1) * (y1 - y0) + 
+			 (z2 - z1) * (z1 - z0) +
+			 (w2 - w1) * (w1 - w0);
+		cosine /= sqrt(pow((x1 - x0), 2.0) +
+		               pow((y1 - y0), 2.0) +
+		               pow((z1 - z0), 2.0) +
+			       pow((w1 - w0), 2.0));
+		cosine /= sqrt(pow((x2 - x1), 2.0) + 
+		               pow((y2 - y1), 2.0) +
+		               pow((z2 - z1), 2.0) +
+		               pow((w2 - w1), 2.0));
 
 		if (sqrt(2.0 - 2.0 * cosine) < (amax * res / vmax)) {
 		    d(i)->vs = vmax;
 		    if (debug>1)
-			printf("1 vs = %g %g: %g %g %g, %g %g %g, %g %g %g\n",
-			     d(i)->vs, cosine, x0, y0, z0, x1, y1, z1, x2, y2, z2);
+			printf("1 vs = %g %g: %g %g %g %g, %g %g %g %g, %g %g %g %g\n",
+			     d(i)->vs, cosine, 
+			     x0, y0, z0, w0, 
+			     x1, y1, z1, w1, 
+			     x2, y2, z2, w2);
 		} else {
 		    d(i)->vs = amax * res / sqrt(2.0 - 2.0 * cosine);
 		    if (debug>1)
-			printf("2 vs = %g %g: %g %g %g, %g %g %g, %g %g %g\n",
-			     d(i)->vs, cosine, x0, y0, z0, x1, y1, z1, x2, y2, z2);
+			printf("2 vs = %g %g: %g %g %g %g, %g %g %g %g, %g %g %g %g\n",
+			     d(i)->vs, cosine, 
+			     x0, y0, z0, w0, 
+			     x1, y1, z1, w1, 
+			     x2, y2, z2, w2);
 		}
 	    }
 	}
@@ -238,8 +268,8 @@ main(int argc, char **argv)
 	if (debug>1) {
 	    printf("------------------\n");
 	    for (i = 1; i <= nlook; i++) {
-		printf("n:%d i:%d x:%g y:%g z:%g eof:%d vs:%g l:%g\n",
-		       nread, i, d(i)->x, d(i)->y, d(i)->z, d(i)->eof,
+		printf("n:%d i:%d x:%g y:%g z:%g w:%g eof:%d vs:%g l:%g\n",
+		       nread, i, d(i)->x, d(i)->y, d(i)->z, d(i)->w, d(i)->eof,
 		       d(i)->vs, d(i)->l);
 	    }
 	}
@@ -248,8 +278,17 @@ main(int argc, char **argv)
 	// initialize velocity calculation code
 	setseg(d(i)->l,d(i)->vs,d(i+1)->vs,vmax,amax,res, fstep);
 
-	ttotal+=interpolate(d(i)->x, d(i)->y, d(i)->z, d(i+1)->x, d(i+1)->y,
-	d(i+1)->z, ttotal, ltotal);
+	// FIXME: should use actually rounded location for each segment instead
+	// of integrating deltas
+
+	ttotal+=interpolate(d(i)->x,   d(i)->y,   d(i)->z,   d(i)->w, 
+	                    d(i+1)->x, d(i+1)->y, d(i+1)->z, d(i+1)->w, ttotal, ltotal);
+
+        fprintf(stderr,"(%g %g) (%g %g) (%g %g) (%g %g)\n",
+	      d(i+1)->x, ((double) xloc)*res,
+	      d(i+1)->y, ((double) yloc)*res,
+	      d(i+1)->z, ((double) zloc)*res,
+	      d(i+1)->w, ((double) wloc)*res);
 
 	ltotal+=d(i)->l;
 
