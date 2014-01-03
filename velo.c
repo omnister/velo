@@ -28,10 +28,10 @@ typedef struct node {
 #define MAXBUF 128		// maximum input x,y,z,w linesize
 
 #define NLOOK 7			// default lookahead
-#define AMAX 1.0		// default acceleration
-#define VMAX 2.0		// default maximum velocity
+#define AMAX 1000.0		// default acceleration
+#define VMAX 0.2		// default maximum velocity
 //#define RES  0.0001		// default stepper resolution
-#define RES  0.000098425	// 400 steps/mm = 10160 steps/inc
+#define RES  0.000098425	// 400 steps/mm = 10160 steps/inch
 #define FSTEP 19500.0		// servo interrupt rate
 #define MINSTEP 4.0		// limit on stepper update rate
 
@@ -40,6 +40,9 @@ double amax = AMAX;
 double vmax = VMAX;
 double res = RES;
 double fstep = FSTEP;
+int mode = 0;
+
+
 int debug = 0;
 
 
@@ -55,7 +58,7 @@ NODE *d(int k)		// modulo access point data ring buffer
     return (&nodebuf[(n + k + nlook) % nlook]);
 }
 
-int getval()	// read either "x y" or "x y z" from stdin
+int getval()	// read either "x y" or "x y z" or "x y z w" from stdin
 {
     int c;
     double x, y, z, w;
@@ -97,7 +100,14 @@ int getval()	// read either "x y" or "x y z" from stdin
 	readerrors++;
 	fprintf(stderr, "error: on line %d, \"%s\"\n", nread, buf);
     }
+
+    // fprintf(stderr,"x:%g y:%g z:%g w:%g \n", nodebuf[n].x, 
+    // nodebuf[n].y, nodebuf[n].z, nodebuf[n].w);
+
     if (nread > 1) {
+
+        d(0)->x *= -1.0;	// correct direction for cnc3040
+
 	d(-1)->l = sqrt(pow((d(0)->x - d(-1)->x), 2.0) +
 			pow((d(0)->y - d(-1)->y), 2.0) +
 			pow((d(0)->z - d(-1)->z), 2.0) +
@@ -118,13 +128,14 @@ main(int argc, char **argv)
     double vv;
     double ltotal = 0.0;
     double ttotal = 0.0;
+    double len;
 
     extern int optind;
     extern char *optarg;
     int errflg = 0;
     int c;
 
-    while ((c = getopt(argc, argv, "a:n:r:dv:")) != EOF) {
+    while ((c = getopt(argc, argv, "a:n:r:s:dv:")) != EOF) {
 	switch (c) {
 	case 'a':			// set acceleration limit
 	    amax = atof(optarg);
@@ -143,6 +154,36 @@ main(int argc, char **argv)
 	case 'r':			// set resolution
 	    res = atof(optarg);
 	    break;
+	case 's':			// set stepper mode
+	    // MS3 MS2 MS1
+	    // L   L   L    // full step
+	    // L   L   H    // half step
+	    // L   H   L    // quarter step
+	    // L   H   H    // eighth step
+	    // H   H   H    // sixteenth
+	    mode = atoi(optarg);
+	    switch (mode) {
+	        case 1:
+		   mode=0;	// single step
+		   break;
+		case 2:
+		   mode=1;	// half step
+		   break;
+		case 4:
+		   mode=2;	// quad step
+		   break;
+		case 8:
+		   mode=3;	// eighth step
+		   break;
+		case 16:
+		   mode=7;	// eighth step
+		   break;
+		default:
+		   fprintf(stderr, "%s error: -s <mode> is one of 1,2,4,8 or 16\n", argv[0]);
+		   errflg++;
+		   break;
+		}
+	    break;
 	case 'v':			// set velocity limit
 	    vmax = atof(optarg);
 	    break;
@@ -153,12 +194,13 @@ main(int argc, char **argv)
     }
 
     if (errflg) {
-	fprintf(stderr, "usage: %s [options] < xyzfile\n", argv[0]);
+	fprintf(stderr, "usage: %s [options] < xyzwfile\n", argv[0]);
 	fprintf(stderr, "     -a <amax>  ; set acceleration limit\n");
 	fprintf(stderr, "     -d         ; verbose debugging info\n");
 	fprintf(stderr, "     -f <fstep> ; stepper update frequency\n");
 	fprintf(stderr, "     -n <nlook> ; set lookahead length \n");
 	fprintf(stderr, "     -r <res>   ; set stepper resolution\n");
+	fprintf(stderr, "     -s <m>     ; set number of microsteps/step: 1,2,4,8,16\n");
 	fprintf(stderr, "     -v <vmax>  ; set velocity limit\n");
 	exit(1);
     }
@@ -182,8 +224,22 @@ main(int argc, char **argv)
         exit(2); 
     }
 
-    for (i = 0; i < nlook - 1; i++) {	// fill buffer
+    getval();	// get first point
+
+    xloc = (int)round(d(1)->x/res);
+    yloc = (int)round(d(1)->y/res);
+    zloc = (int)round(d(1)->z/res);
+    wloc = (int)round(d(1)->w/res);
+
+    for (i = 1; i < nlook - 1; i++) {	// fill buffer
 	getval();
+    }
+
+    if (debug) {
+       fprintf(stderr,"MODE %0.2x\n", mode&0x07);
+    } else {
+       // MODE    (7:0) '1010' 0mmm  ; set ustep mode
+       putchar(0xa0 | (mode & 0x07));
     }
 
     while (!done) {
@@ -192,6 +248,15 @@ main(int argc, char **argv)
 	// calculate maximum acceptable velocity at a segment to
 	// still be able to turn the next corner without exceeding
 	// the AMAX acceleration limit.
+
+        d(1)->x = (double)xloc * res;
+        d(1)->w = (double)wloc * res;
+        d(1)->y = (double)yloc * res;
+        d(1)->z = (double)zloc * res;
+	d(1)->l = sqrt(pow((d(1)->x - d(2)->x), 2.0) +
+			pow((d(1)->y - d(2)->y), 2.0) +
+			pow((d(1)->z - d(2)->z), 2.0) +
+			pow((d(1)->w - d(2)->w), 2.0) );
 
 	for (i = 2; i < nlook; i++) {
 	    if (d(i + 1)->eof == 1) {
@@ -227,16 +292,16 @@ main(int argc, char **argv)
 
 		if (sqrt(2.0 - 2.0 * cosine) < (amax * res / vmax)) {
 		    d(i)->vs = vmax;
-		    if (debug>1)
-			printf("1 vs = %g %g: %g %g %g %g, %g %g %g %g, %g %g %g %g\n",
+		    if (debug>3)
+			fprintf(stderr,"1 vs = %g %g: %g %g %g %g, %g %g %g %g, %g %g %g %g\n",
 			     d(i)->vs, cosine, 
 			     x0, y0, z0, w0, 
 			     x1, y1, z1, w1, 
 			     x2, y2, z2, w2);
 		} else {
 		    d(i)->vs = amax * res / sqrt(2.0 - 2.0 * cosine);
-		    if (debug>1)
-			printf("2 vs = %g %g: %g %g %g %g, %g %g %g %g, %g %g %g %g\n",
+		    if (debug>3)
+			fprintf(stderr,"2 vs = %g %g: %g %g %g %g, %g %g %g %g, %g %g %g %g\n",
 			     d(i)->vs, cosine, 
 			     x0, y0, z0, w0, 
 			     x1, y1, z1, w1, 
@@ -254,8 +319,8 @@ main(int argc, char **argv)
 
 	for (i = nlook - 1; i > 1; i--) {	// backwards chaining
 	    vv = sqrt(pow(d(i + 1)->vs, 2.0) + 2.0 * amax * d(i)->l);
-	    if (debug>1)
-		printf("di+1vs=%g divs=%g vv==%g\n", d(i + 1)->vs,
+	    if (debug>3)
+		fprintf(stderr,"di+1vs=%g divs=%g vv==%g\n", d(i + 1)->vs,
 		       d(i)->vs, vv);
 	    d(i)->vs = min(d(i)->vs, vv);
 	    d(i)->vs = min(d(i)->vs, vmax);
@@ -265,8 +330,8 @@ main(int argc, char **argv)
 	vv = sqrt(pow(d(1)->vs, 2.0) + 2.0 * amax * d(1)->l);
 	d(2)->vs = min(d(2)->vs, vv);
 
-	if (debug>1) {
-	    printf("------------------\n");
+	if (debug>3) {
+	    fprintf(stderr,"------------------\n");
 	    for (i = 1; i <= nlook; i++) {
 		printf("n:%d i:%d x:%g y:%g z:%g w:%g eof:%d vs:%g l:%g\n",
 		       nread, i, d(i)->x, d(i)->y, d(i)->z, d(i)->w, d(i)->eof,
@@ -274,23 +339,26 @@ main(int argc, char **argv)
 	    }
 	}
 
+	len = sqrt(pow(((double)xloc*res - d(2)->x), 2.0) +
+	           pow(((double)yloc*res - d(2)->y), 2.0) +
+	           pow(((double)zloc*res - d(2)->z), 2.0) +
+	           pow(((double)wloc*res - d(2)->w), 2.0));
+
 
 	// initialize velocity calculation code
-	setseg(d(i)->l,d(i)->vs,d(i+1)->vs,vmax,amax,res, fstep);
+	setseg(d(i)->l, d(i)->vs,d(i+1)->vs,vmax,amax,res, fstep);
+	//setseg(len, d(1)->vs,d(2)->vs,vmax,amax,res, fstep);
 
-	// FIXME: should use actually rounded location for each segment instead
-	// of integrating deltas
+	ttotal+=interpolate((double)xloc*res,   (double)yloc*res,   (double)zloc*res,   (double)wloc*res, 
+	                    d(2)->x, d(2)->y, d(2)->z, d(2)->w, ttotal, ltotal);
 
-	ttotal+=interpolate(d(i)->x,   d(i)->y,   d(i)->z,   d(i)->w, 
-	                    d(i+1)->x, d(i+1)->y, d(i+1)->z, d(i+1)->w, ttotal, ltotal);
+        //fprintf(stderr,"(%g) (%g) (%g) (%g)\n",
+	//      d(2)->x - ((double) xloc)*res,
+	//      d(2)->y - ((double) yloc)*res,
+	//      d(2)->z - ((double) zloc)*res,
+	//      d(2)->w - ((double) wloc)*res);
 
-        fprintf(stderr,"(%g %g) (%g %g) (%g %g) (%g %g)\n",
-	      d(i+1)->x, ((double) xloc)*res,
-	      d(i+1)->y, ((double) yloc)*res,
-	      d(i+1)->z, ((double) zloc)*res,
-	      d(i+1)->w, ((double) wloc)*res);
-
-	ltotal+=d(i)->l;
+	ltotal+=d(1)->l;
 
 	if (d(3)->eof == 1)
 	    done++;

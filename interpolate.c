@@ -64,7 +64,7 @@ void setseg(double llseg,
     ts2 = ts1 + s2/vm;
 
     if (debug > 1) {
-     printf("#setseg: lseg:%g vmax:%g amax:%g vs:%g \
+     fprintf(stderr,"#setseg: lseg:%g vmax:%g amax:%g vs:%g \
      ve:%g vm:%g s1:%g s2:%g s3:%g ts1:%g ts2:%g\n", 
      lseg, vmax, amax, vs, ve, vm, s1, s2, s3, ts1, ts2);
     }
@@ -74,12 +74,14 @@ void setseg(double llseg,
 double time2alpha(double alpha) {
 
       double l = alpha*lseg;
+      double asave;
       double tt;
       int clipped = 0;
 
-      if (alpha > 1.0) {	// clip the input
-          alpha = 1.0;
-	  clipped++;
+      if (alpha > 1.0) {
+	 asave=alpha;
+         alpha = 1.0;
+	 clipped++;
       }
 
       if (l < s1) {             // accellerating
@@ -96,9 +98,8 @@ double time2alpha(double alpha) {
         printf("atl: alpha:%g l:%g s1:%g s2:%g ts1:%g ts2:%g vm:%g amax:%g tt:%g\n", 
         alpha, l, s1, s2, ts1, ts2, vm, amax, tt);
       }
-
+      if (clipped) return (tt*asave);
       return(tt);
-
 }
 
 double interpolate(double x1, double y1, double z1, double w1,
@@ -113,9 +114,9 @@ double interpolate(double x1, double y1, double z1, double w1,
     double xdir, ydir, zdir, wdir;
     int xs, ys, zs, ws;			// was there a step?
     int x0, y0, z0, w0;
-    int minval;
+    int minstep;
+    int minstep2 = 0;
     int xstep, ystep, zstep, wstep;	// next step counts
-    int minval2 = 0;
     int delay;
     int done;
 
@@ -138,7 +139,7 @@ double interpolate(double x1, double y1, double z1, double w1,
     if (w2 > w1) dirmask |= WMASK;
 
     if (debug>2) {
-	printf("DIR 0x%0.2x\n", dirmask);
+	fprintf(stderr,"DIR 0x%0.2x\n", dirmask);
     } else {
         putchar(0x80 | dirmask);
     }
@@ -149,125 +150,173 @@ double interpolate(double x1, double y1, double z1, double w1,
 // MODE    (7:0) '1010' 0mmm  ; set ustep mode
 // STAT    (7:0) '1010' 1res  ; set reset, enable, sleep
 
-
     x0 = x1;
     y0 = y1;
     z0 = z1;
     w0 = w1;
 
     stepmask = 0;
-    if (x2 != x1) stepmask |= XMASK;
-    if (y2 != y1) stepmask |= YMASK;
-    if (z2 != z1) stepmask |= ZMASK;
-    if (w2 != w1) stepmask |= WMASK;
+    if (fabs(x2-x1) > 0.5*res) stepmask |= XMASK;
+    if (fabs(y2-y1) > 0.5*res) stepmask |= YMASK;
+    if (fabs(z2-z1) > 0.5*res) stepmask |= ZMASK;
+    if (fabs(w2-w1) > 0.5*res) stepmask |= WMASK;
+
+    // I assumed the factor 0.0*res below should have
+    // been 0.5 to minimize error, but 0.0 empirically
+    // 0.0 gives errors bounded by +/- res, so I leave
+    // it set to 0.0, although it makes the equation 
+    // redundant...
 
     alphax = alphay = alphaz = alphaw = 0.0;
-    eax = 1.0 - fabs(0.5*res/(x2-x1));
-    eay = 1.0 - fabs(0.5*res/(y2-y1));
-    eaz = 1.0 - fabs(0.5*res/(z2-z1));
-    eaw = 1.0 - fabs(0.5*res/(w2-w1));
+    eax = 1.0 - fabs(0.0*res/(x2-x1));
+    eay = 1.0 - fabs(0.0*res/(y2-y1));
+    eaz = 1.0 + fabs(0.0*res/(z2-z1));
+    eaw = 1.0 + fabs(0.0*res/(w2-w1));
 
     mask = XMASK | YMASK | ZMASK | WMASK;	// initial step in all dims
     xstep = ystep = zstep = wstep = 0;
 
-    // these won't work due to possible of overshooting and 0 dimensions:
-    // while((fabs(xx-x2)>res) || (fabs(yy-y2)>res) || (fabs(zz-z2)>res)) {
-    // while(alphax < eax || alphay < eay || alphaz < eaz || alphaw < eaw) {
-
     done = 0;
-    while(!done) {
 
-       if (debug > 2) {
-	   printf("%x:g %g y:%g %g z:%g %g w:%g %g\n",
-	   	xx, x2, yy, y2, zz, z2, ww, w2);
-	   printf("ax:%g %g ay:%g %g az:%g %g aw: %g %g\n", 
-	        alphax, eax, alphay, eay, alphaz, eaz, alphaw, eaw);
+    while(!done) {
+    // while(stepmask) {
+
+       if (debug>2) {
+	   fprintf(stderr,
+	   	"xs:%d ys:%d zs:%d ws:%d ms:%d ms2:%d mask:%0.2x sm:%0.2x\n", 
+	   	xstep, ystep, zstep, wstep, minstep, minstep2, mask, stepmask);
+	   fprintf(stderr,
+	   	"xx:%g x2:%g y:%g y2:%g z:%g z2:%g w:%g w2:%g\n", 
+		xx, x2, yy, y2, zz, z2, ww, w2);
+	   fprintf(stderr,"ax:%g ex:%g ay:%g ey:%g az:%g ez:%g aw:%g ew:%g\n", 
+	       alphax, eax, alphay, eay, alphaz, eaz, alphaw, eaw);
        }
 
        done=1;	// set it and then conditionally clear it
 
-       if ((stepmask & XMASK) && (mask & XMASK)) { 
-	   xx+=res*xdir;
-	   xloc += (int) xdir;
-           alphax = (xx-x1)/(x2-x1);
-	   if (alphax < eax) done=0;
+       if ((alphax < eax) && stepmask & XMASK) {
+            if(mask & XMASK) { 
+	       xx+=res*xdir;
+	   } 
+	   alphax = (xx-x1)/(x2-x1);
+	   if (alphax > eax) { 
+		// done so take this axis out of the running
+		stepmask &= ~XMASK;
+	   } else {
+	   	done=0;
+	   }
 	   xstep = (int)(time2alpha(alphax)*fupdate);	
        }
 
-       if (stepmask & YMASK && mask & YMASK) {
-	   yy+=res*ydir;
-	   yloc += (int) ydir;
-           alphay = (yy-y1)/(y2-y1);
-	   if (alphay < eay) done=0;
+       if ((alphay < eay) && stepmask & YMASK) {
+	   if (mask & YMASK) {
+	       yy+=res*ydir;
+	   }
+	   alphay = (yy-y1)/(y2-y1);
+	   if (alphay > eay) { 
+		stepmask &= ~YMASK;
+	   } else {
+	   	done=0;
+	   }
 	   ystep = (int)(time2alpha(alphay)*fupdate);	
        }
 
-       if (stepmask & ZMASK && mask & ZMASK) {
-	   zz+=res*zdir;
-	   zloc += (int) zdir;
+       if ((alphaz < eaz) && stepmask & ZMASK) {
+       	   if (mask & ZMASK) {
+	       zz+=res*zdir;
+	   } 
            alphaz = (zz-z1)/(z2-z1);
-	   if (alphaz < eaz) done=0;
-	   zstep = (int)(time2alpha(alphaz)*fupdate);	
+	   if (alphaz > eaz) { 
+		stepmask &= ~ZMASK;
+	   } else {
+	   	done=0;
+	   }
+           zstep = (int)(time2alpha(alphaz)*fupdate);	
        }
 
-       if (stepmask & WMASK && mask & WMASK) {
-	   ww+=res*wdir;
-	   wloc += (int) wdir;
-           alphaw = (ww-w1)/(w2-w1);
-	   if (alphaw < eaw) done=0;
+       if ((alphaw < eaw) && stepmask & WMASK) {
+           if (mask & WMASK) {
+	       ww+=res*wdir;
+	   }
+	   alphaw = (ww-w1)/(w2-w1);
+	   if (alphaw > eaw) { 
+		stepmask &= ~WMASK;
+	   } else {
+	   	done=0;
+	   }
 	   wstep = (int)(time2alpha(alphaw)*fupdate);	
        }
 
+       // set minstep to the step value of the first stepped axis
+
        if (stepmask & XMASK) {
-	   minval = xstep;
+	   minstep = xstep;
 	   mask = XMASK;
        } else if (stepmask & YMASK) {
-	   minval = ystep;
+	   minstep = ystep;
 	   mask = YMASK;
        } else if (stepmask & ZMASK) {
-	   minval = zstep;
+	   minstep = zstep;
 	   mask = ZMASK;
        } else if (stepmask & WMASK) {
-	   minval = wstep;
+	   minstep = wstep;
 	   mask = WMASK;
        }
 
+       // now give every other axis a chance to override
+       // a lower minstep, or tag along at current mistep
+
        if (stepmask & YMASK) {
-	   if (ystep < minval) {
-	       minval = ystep;
+	   if (ystep < minstep) {
+	       minstep = ystep;
 	       mask = YMASK;
-	   } else if (ystep == minval) {
+	   } else if (ystep == minstep) {
 	       mask |= YMASK;
 	   }
        }
 
        if (stepmask & ZMASK) {
-	   if (zstep < minval) {
-	       minval = zstep;
+	   if (zstep < minstep) {
+	       minstep = zstep;
 	       mask = ZMASK;
-	   } else if (zstep == minval) {
+	   } else if (zstep == minstep) {
 	       mask |= ZMASK;
 	   }
        }
 
        if (stepmask & WMASK) {
-	   if (wstep < minval) {
-	       minval = wstep;
+	   if (wstep < minstep) {
+	       minstep = wstep;
 	       mask = WMASK;
-	   } else if (wstep == minval) {
+	   } else if (wstep == minstep) {
 	       mask |= WMASK;
 	   }
        }
 
-       // printf("%d %d, %.2x ", minval-minval2, minval, mask);
+       // all done, update step locations
+
+       if (mask & XMASK) { xloc += (int) xdir; }
+       if (mask & YMASK) { yloc += (int) ydir; }
+       if (mask & ZMASK) { zloc += (int) zdir; }
+       if (mask & WMASK) { wloc += (int) wdir; }
+
+       // printf("%d %d, %.2x ", minstep-minstep2, minstep, mask);
        // printf("%d %d %d %d %g %g %g %g\n", 
        //	xstep, ystep, zstep, wstep, xx, yy, zz, ww);
 
        if (debug>2) {
-	   printf("DEL %d\n", minval-minval2);
-	   printf("STP 0x%0.2x\n", mask);
+	   fprintf(stderr,"DEL %d\n", minstep-minstep2);
+	   fprintf(stderr,"STP 0x%0.2x\n", mask);
        } else {
-	   delay=(minval-minval2);
+	   delay=(minstep-minstep2);
+
+	   if (delay > 5000) { 
+		if (debug>2) {
+		    fprintf(stderr, "clipping bad delay val: %d\n", delay);
+		}
+		delay = 5000;		// defensive programming
+           }
+
 	   while(delay>=128) {
 	      putchar(0x7f);
 	      delay-=128;
@@ -278,8 +327,9 @@ double interpolate(double x1, double y1, double z1, double w1,
 	   putchar(0x90 | mask);
        }
 
-       minval2 = minval;
+       minstep2 = minstep;
     }
+
 
     return (time2alpha(1.0));
 }
