@@ -1,19 +1,26 @@
 
-doodling towards making a stepper CNC drive with optimized velocity
-profiling. 
+CNC stepper motor drive with optimized velocity profiling. 
 
-velo.c: reads x,y,z stream and optimizes start/end velocities to obey
-vmax/amax 
+velo.c, interpolate.c: reads x,y,z,w coordinate stream and optimizes
+path to obey maximum velocity and acceleration limits, outputs encoded
+step pulse bytestream to control stepper motor
 
-interp: awk script progress xres, yres step by step for a given segment 
+feed.c: takes byte stream from velo(1) and sends it via USB2.0 to a
+PIC microcontroller chip to generate regular stepper motor pulses for
+a general 4-axis stepper motor system.
 
-ramp: awk script for computing time within a segment
+A typical usage is to take a path and stream it through a pipeline:
 
-interpolate.c: rewriting interp/ramp in c format as a support routine
-
-work is to combine interp and ramp into a helper routine and then merge
-with velo to do complete stepper timing for N axes. 
-
-3dstep: takes output of velo and processes it into a stream of step
-commands for feeding as a bytestream to an FTDI USB fifo chip.
-
+---------- cut here -----------
+# example to move a CNC cutter in
+# a 1"x1" square pattern...
+(
+cat <<!
+0 0
+0 1
+1 1
+1 0
+0 0
+!
+) | velo -v0.3 -a1000 -n7 | feed
+---------- cut here -----------
