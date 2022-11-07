@@ -135,13 +135,13 @@ main(int argc, char **argv)
     int errflg = 0;
     int c;
 
-    while ((c = getopt(argc, argv, "a:n:r:s:dv:")) != EOF) {
+    while ((c = getopt(argc, argv, "a:n:r:s:d:v:")) != EOF) {
 	switch (c) {
 	case 'a':			// set acceleration limit
 	    amax = atof(optarg);
 	    break;
 	case 'd':
-	    debug++;
+	    debug = atof(optarg);
 	    break;
 	case 'f':			// set stepper update freq
 	    fstep = atof(optarg);
@@ -196,7 +196,7 @@ main(int argc, char **argv)
     if (errflg) {
 	fprintf(stderr, "usage: %s [options] < xyzwfile\n", argv[0]);
 	fprintf(stderr, "     -a <amax>  ; set acceleration limit\n");
-	fprintf(stderr, "     -d         ; verbose debugging info\n");
+	fprintf(stderr, "     -d <debug> ; verbose debugging bitmask\n");
 	fprintf(stderr, "     -f <fstep> ; stepper update frequency\n");
 	fprintf(stderr, "     -n <nlook> ; set lookahead length \n");
 	fprintf(stderr, "     -r <res>   ; set stepper resolution\n");
@@ -205,7 +205,7 @@ main(int argc, char **argv)
 	exit(1);
     }
 
-    if (debug) {
+    if (debug&1) {
     fprintf(stderr, "-a (%8.3g) ;accelleration limit (inches/second^2)\n", amax);
     fprintf(stderr, "-f (%8.3g) ;stepper update frequency\n", fstep);
     fprintf(stderr, "-n (%8d) ;number of segments lookahead\n", nlook);
@@ -235,7 +235,7 @@ main(int argc, char **argv)
 	getval();
     }
 
-    if (debug) {
+    if (debug&4) {
        fprintf(stderr,"MODE %0.2x\n", mode&0x07);
     } else {
        // MODE    (7:0) '1010' 0mmm  ; set ustep mode
@@ -292,7 +292,7 @@ main(int argc, char **argv)
 
 		if (sqrt(2.0 - 2.0 * cosine) < (amax * res / vmax)) {
 		    d(i)->vs = vmax;
-		    if (debug>3)
+		    if (debug&2)
 			fprintf(stderr,"1 vs = %g %g: %g %g %g %g, %g %g %g %g, %g %g %g %g\n",
 			     d(i)->vs, cosine, 
 			     x0, y0, z0, w0, 
@@ -300,7 +300,7 @@ main(int argc, char **argv)
 			     x2, y2, z2, w2);
 		} else {
 		    d(i)->vs = amax * res / sqrt(2.0 - 2.0 * cosine);
-		    if (debug>3)
+		    if (debug&2)
 			fprintf(stderr,"2 vs = %g %g: %g %g %g %g, %g %g %g %g, %g %g %g %g\n",
 			     d(i)->vs, cosine, 
 			     x0, y0, z0, w0, 
@@ -319,7 +319,7 @@ main(int argc, char **argv)
 
 	for (i = nlook - 1; i > 1; i--) {	// backwards chaining
 	    vv = sqrt(pow(d(i + 1)->vs, 2.0) + 2.0 * amax * d(i)->l);
-	    if (debug>3)
+	    if (debug&8)
 		fprintf(stderr,"di+1vs=%g divs=%g vv==%g\n", d(i + 1)->vs,
 		       d(i)->vs, vv);
 	    d(i)->vs = min(d(i)->vs, vv);
@@ -330,7 +330,7 @@ main(int argc, char **argv)
 	vv = sqrt(pow(d(1)->vs, 2.0) + 2.0 * amax * d(1)->l);
 	d(2)->vs = min(d(2)->vs, vv);
 
-	if (debug>3) {
+	if (debug&8) {
 	    fprintf(stderr,"------------------\n");
 	    for (i = 1; i <= nlook; i++) {
 		printf("n:%d i:%d x:%g y:%g z:%g w:%g eof:%d vs:%g l:%g\n",
