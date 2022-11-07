@@ -1,0 +1,68 @@
+awk '
+   BEGIN {
+     CUT=-0.280
+     CLEAR=0.100
+     x=y=z=0;
+     # yscale=1.00; xscale=1.00;
+     yscale=1/25.4; xscale=1/25.4;
+     xoffset=0.0; yoffset=0.0
+     debug=0
+     pen=0;
+
+     if (debug) {
+       print "back"
+       print "isotropic"
+     }
+     jump++
+     height=CLEAR
+
+     emit(0,0,0,"a", 0);
+     emit(0,0,height,"a", 0);
+   }
+
+   /^pen/ {
+      pen = $2;
+   }
+
+   /^jump/ {
+      jump++;
+      next;
+   }
+
+   /^[a-z][A-Z]/ {
+      next;		# ignore all other text commands
+   }
+
+   /^[-+0-9]/ {
+      xold=x; x=$1*xscale-xoffset;
+      yold=y; y=$2*yscale-yoffset;
+
+      if (jump) {
+	 height=CLEAR
+	 if (debug) print "pen 1"
+	 emit(xold,yold,height,"a", pen);
+         emit(x,y,height,"a", pen);
+	 jump=0;
+      } else {
+         if (height==CLEAR) {
+	    height=CUT
+	    if (debug) print "pen 2"
+	    emit(xold,yold,height,"b", pen);
+            emit(x,y,height,"b", pen);
+	 } else {
+            emit(x,y,height,"b", pen);
+	 }
+      }
+      next;
+   }
+   END {
+      if (debug) print "pen 1"
+      emit(x,y,CLEAR,"e",pen);
+      emit(0,0,CLEAR,"e", pen);
+      emit(0,0,0,"e",pen);
+   }
+
+   function emit(x,y,z,s,pen) {
+     printf("%.5g %.5g %.5g %s\n", x,y,z,s);
+   }
+'
