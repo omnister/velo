@@ -139,7 +139,7 @@ double interpolate(double x1, double y1, double z1, double w1,
     if (w2 > w1) dirmask |= WMASK;
 
     if (debug&4) {
-	fprintf(stderr,"DIR 0x%0.2x\n", dirmask);
+	fprintf(stderr,"DIR 0x%.2x\n", dirmask);
     } else {
         putchar(0x80 | dirmask);
     }
@@ -183,7 +183,7 @@ double interpolate(double x1, double y1, double z1, double w1,
 
        if (debug&16) {
 	   fprintf(stderr,
-	   	"xs:%d ys:%d zs:%d ws:%d ms:%d ms2:%d mask:%0.2x sm:%0.2x\n", 
+	   	"xs:%d ys:%d zs:%d ws:%d ms:%d ms2:%d mask:%.2x sm:%.2x\n", 
 	   	xstep, ystep, zstep, wstep, minstep, minstep2, mask, stepmask);
 	   fprintf(stderr,
 	   	"xx:%g x2:%g y:%g y2:%g z:%g z2:%g w:%g w2:%g\n", 
@@ -310,7 +310,7 @@ double interpolate(double x1, double y1, double z1, double w1,
 
 	   if (debug&4) {
 	       fprintf(stderr,"DEL %d\n", minstep-minstep2);
-	       fprintf(stderr,"STP 0x%0.2x\n", mask);
+	       fprintf(stderr,"STP 0x%.2x\n", mask);
 	   } else {
 	       delay=(minstep-minstep2);
 

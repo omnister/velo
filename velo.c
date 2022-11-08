@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <unistd.h>
 
 #include "interpolate.h"
 
@@ -117,7 +118,7 @@ int getval()	// read either "x y" or "x y z" or "x y z w" from stdin
 }
 
 
-main(int argc, char **argv)
+int main(int argc, char **argv)
 {
     int done = 0;
     int i;
@@ -135,7 +136,7 @@ main(int argc, char **argv)
     int errflg = 0;
     int c;
 
-    while ((c = getopt(argc, argv, "a:n:r:s:d:v:")) != EOF) {
+    while ((c = getopt(argc, argv, "a:d:f:n:r:s:v:")) != EOF) {
 	switch (c) {
 	case 'a':			// set acceleration limit
 	    amax = atof(optarg);
@@ -236,7 +237,7 @@ main(int argc, char **argv)
     }
 
     if (debug&4) {
-       fprintf(stderr,"MODE %0.2x\n", mode&0x07);
+       fprintf(stderr,"MODE %.2x\n", mode&0x07);
     } else {
        // MODE    (7:0) '1010' 0mmm  ; set ustep mode
        putchar(0xa0 | (mode & 0x07));

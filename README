@@ -5,6 +5,18 @@ velo.c, interpolate.c: reads x,y,z,w coordinate stream and optimizes
 path to obey maximum velocity and acceleration limits, outputs encoded
 step pulse bytestream to control stepper motor
 
+Steps/delays are encoded as bytes
+
+// implements simple s-code interpreter
+// DELAY   (7:0) '0'nnn nnnn  ; delay n+1 counts
+// DIR     (7:0) '1000' wxyz  ; direction (0=ccw, 1=cw)
+// STEP    (7:0) '1001' wxyz  ; step (1=step, 0=idle)
+// MODE    (7:0) '1010' 0mmm  ; set ustep mode
+// STAT    (7:0) '1010' 1res  ; set reset, enable, sleep
+// ----    (7:0) '1011' ----  ; undefined
+// SPIN    (7:0) '11'nn nnnn  ; duty cycle is n/64 0=off
+
+
 feed.c: takes byte stream from velo(1) and sends it via USB2.0 to a
 PIC microcontroller chip to generate regular stepper motor pulses for
 a general 4-axis stepper motor system.
