@@ -1,5 +1,5 @@
 
-all: velo jog feed rawstep
+all: velo jog feed rawstep rawstep2
 
 velo: velo.c interpolate.c
 	cc velo.c interpolate.c -o velo -lm
@@ -13,3 +13,5 @@ feed: feed.c
 rawstep: rawstep.c stepper.c stepper.h
 	cc rawstep.c stepper.c -o rawstep -lm
 
+rawstep2: rawstep2.c stepper.c stepper.h
+	cc rawstep2.c stepper.c -o rawstep2 -lm
