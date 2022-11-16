@@ -82,15 +82,16 @@ void center(int steps) {
     mode(0);
 
     // go left full stroke and stall
-    dir(0);
+    dir(1);
     for (i=0; i<steps; i++) {
 	delay(50);
 	step(7);
     }
 
     // go right 1/2 stroke to center piston
-    dir(1);
-    for (i=0; i<steps/2; i++) {
+    dir(0);
+    //for (i=0; i<steps/2; i++) {
+    for (i=0; i<10; i++) {
 	delay(50);
 	step(7);
     }
