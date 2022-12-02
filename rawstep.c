@@ -29,6 +29,7 @@ int main(int argc, char **argv) {
     int zero=0;
     float interp=1.0;
     int modeset=0;
+    float time_limit=0.0;	// run time in minutes (0=forever)
 
     float cycletime=0.0;	// in arbitrary units
     float period=1.0;		// in seconds
@@ -39,7 +40,7 @@ int main(int argc, char **argv) {
     int errflg = 0;
     int c;
 
-    while ((c = getopt(argc, argv, "a:c:p:d:f:m:r:s:v:z")) != EOF) {
+    while ((c = getopt(argc, argv, "a:c:p:d:f:m:r:s:t:v:z")) != EOF) {
 	 switch (c) {
 		case 'a':                       // set acceleration limit
 		    amax = atof(optarg);
@@ -68,6 +69,9 @@ int main(int argc, char **argv) {
 		case 's':                       // set steps pk/pk
 		    l = atof(optarg);
 		    break;
+		case 't':                       // set steps pk/pk
+		    time_limit = atof(optarg);
+		    break;
 	        case 'v':                       // set velocity limit
                     vmax = atof(optarg);
                     break;
@@ -88,10 +92,10 @@ int main(int argc, char **argv) {
 	    fprintf(stderr, "     -f <uliters> ; set flow in ul/min (default=%f)\n", flow);
 	    fprintf(stderr, "     -p <period>  ; set stroke period in seconds (default=%f)\n", period);
 	    fprintf(stderr, "     -s <count>   ; set steps pk/pk (default=%f)\n", l);
+	    fprintf(stderr, "     -t <minutes> ; turn off time (default=%f)\n", time_limit);
 	    fprintf(stderr, "     -m <factor>  ; set interpolation mode (default = %f)\n", interp);
 	    fprintf(stderr, "     -v <vmax>    ; set velocity limit (default=%f)\n", vmax);
 	    fprintf(stderr, "     -z           ; initialize piston to midpoint (default off)\n");
-	    fprintf(stderr, "	100uL is approximately -p5 -s150\n");
 	    exit(1);
     }
 
@@ -183,8 +187,10 @@ int main(int argc, char **argv) {
     }
 
     mode(modeset); // set stepper interpolation 
+    float total_time=0.0;
 	
     while (1) {
+	// fprintf(stderr, "time = %f\n", total_time);
 	dir(1);
 
 	t0 = time_at_l(s,res);
@@ -202,5 +208,10 @@ int main(int argc, char **argv) {
 	      step(7);
 	      // if (debug) printf("%f %f %f %f\n", ll, t0-t1, t0, fabs((t0-t1)*fstep*period/cycletime));
 	}
+
+	total_time += period;
+	if (time_limit > 0.0) {
+	    if (total_time > (60.0*time_limit)) exit(1);
+	}	
     }
 }
